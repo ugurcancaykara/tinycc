@@ -8998,8 +8998,9 @@ static void gen_function(Sym *sym)
     /* end of function */
     tcc_debug_funcend(tcc_state, ind - func_ind);
 
-    /* patch symbol size */
-    elfsym(sym)->st_size = ind - func_ind;
+    /* patch symbol size (may be NULL in syntax-only mode) */
+    { ElfSym *es = elfsym(sym);
+      if (es) es->st_size = ind - func_ind; }
     cur_text_section->data_offset = ind;
 
     sym_pop(&local_stack, NULL, 0);

@@ -73,15 +73,7 @@ static Section dummy_section = {0};
 
 void tccelf_begin_file(TCCState *s1) {}
 void tccelf_end_file(TCCState *s1) {}
-void tccelf_new(TCCState *s) {
-    /* Provide dummy sections so syntax checker doesn't crash on NULL derefs */
-    s->text_section = &dummy_section;
-    s->data_section = &dummy_section;
-    s->bss_section = &dummy_section;
-    s->common_section = &dummy_section;
-    s->cur_text_section = &dummy_section;
-    s->symtab_section = &dummy_section;
-}
+void tccelf_new(TCCState *s) {}
 void tccelf_delete(TCCState *s1) {}
 void tccelf_stab_new(TCCState *s) {}
 int tcc_object_type(int fd, ElfW(Ehdr) *h) { return 0; }
