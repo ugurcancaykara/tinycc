@@ -906,6 +906,7 @@ static void buf_puts(BufWriter *w, const char *s);
 static void buf_putc(BufWriter *w, char c);
 static void buf_printf(BufWriter *w, const char *fmt, ...);
 static void json_write_struct(BufWriter *w, TCCState *s1, Sym *s, const char *name, int *first);
+static void json_write_func(BufWriter *w, TCCState *s1, Sym *sym, const char *name, int is_func_ptr, int *first);
 static void json_write_debug_calls(BufWriter *w, TCCState *s1);
 
 /* compile the file opened in 'file'. Return non zero if errors. */
@@ -968,6 +969,30 @@ static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd, cons
                     if (ts && ts->sym_struct) {
                         json_write_struct(w, s1, ts->sym_struct, ts->str, &first);
                     }
+                    if (w->full) break;
+                }
+                /* Export function declarations (including BPF helper function pointers) */
+                for (i = TOK_IDENT; i < tok_ident; i++) {
+                    TokenSym *ts = table_ident[i - TOK_IDENT];
+                    if (ts && ts->sym_identifier) {
+                        Sym *sym = ts->sym_identifier;
+                        int bt = sym->type.t & VT_BTYPE;
+                        int is_func = (bt == VT_FUNC);
+                        int is_func_ptr = (bt == VT_PTR)
+                            && sym->type.ref
+                            && ((sym->type.ref->type.t & VT_BTYPE) == VT_FUNC);
+                        if (is_func || is_func_ptr) {
+                            /* Skip compiler builtins */
+                            if (ts->str[0] == '_' && ts->str[1] == '_'
+                                && ts->str[2] == 'b' && ts->str[3] == 'u')
+                                goto next_func;
+                            /* Skip alloca */
+                            if (ts->str[0] == 'a' && !strcmp(ts->str, "alloca"))
+                                goto next_func;
+                            json_write_func(w, s1, sym, ts->str, is_func_ptr, &first);
+                        }
+                    }
+                    next_func:
                     if (w->full) break;
                 }
             }
@@ -2758,6 +2783,109 @@ static void json_write_struct(BufWriter *w, TCCState *s1, Sym *s, const char *na
     buf_puts(w, "\n  ]");
 
     buf_puts(w, "}");
+}
+
+/* Write a C type as a human-readable string (e.g. "const void *", "struct foo *", "__u64") */
+static void json_write_type_string(BufWriter *w, TCCState *s1, CType *type)
+{
+    int ptr_depth;
+    CType cur;
+    int quals[16]; /* track const at each pointer level */
+
+    if (w->full) return;
+
+    /* Walk through pointer chain to find base type */
+    cur = *type;
+    ptr_depth = 0;
+    while ((cur.t & VT_BTYPE) == VT_PTR && cur.ref && ptr_depth < 16) {
+        quals[ptr_depth] = cur.ref->type.t & VT_CONSTANT;
+        cur = cur.ref->type;
+        ptr_depth++;
+    }
+
+    /* Write const on base type if set */
+    if (cur.t & VT_CONSTANT)
+        buf_puts(w, "const ");
+
+    /* Write base type */
+    json_write_base_type_name(w, s1, &cur, 0, 0);
+
+    /* Write pointer stars */
+    if (ptr_depth > 0) {
+        buf_puts(w, " ");
+        int i;
+        for (i = ptr_depth - 1; i >= 0; i--) {
+            buf_putc(w, '*');
+            if (quals[i])
+                buf_puts(w, " const");
+            if (i > 0) buf_putc(w, ' ');
+        }
+    }
+}
+
+/* Write a function's type information as JSON */
+static void json_write_func(BufWriter *w, TCCState *s1, Sym *sym, const char *name, int is_func_ptr, int *first)
+{
+    Sym *func_type_sym;
+    Sym *param;
+
+    if (w->full) return;
+
+    /* For function pointers (BPF helpers): sym->type is PTR, deref to get FUNC */
+    if (is_func_ptr) {
+        if (!sym->type.ref) return;
+        func_type_sym = sym->type.ref;
+    } else {
+        func_type_sym = sym;
+    }
+
+    /* func_type_sym->type should be VT_FUNC, and func_type_sym->type.ref has return type + params */
+    if (!func_type_sym->type.ref) return;
+
+    if (!*first)
+        buf_puts(w, ",\n");
+    *first = 0;
+
+    buf_puts(w, "  {\"name\": \"");
+    buf_puts_json(w, name);
+    buf_puts(w, "\", \"kind\": \"function\", \"return_type\": \"");
+
+    /* Return type is in func_type_sym->type.ref->type */
+    json_write_type_string(w, s1, &func_type_sym->type.ref->type);
+
+    buf_puts(w, "\", \"params\": [");
+
+    /* Parameters are linked via func_type_sym->type.ref->next */
+    param = func_type_sym->type.ref->next;
+    {
+        int param_first = 1;
+        while (param) {
+            if (w->full) return;
+            /* Skip "void" parameter (func(void)) */
+            if ((param->type.t & VT_BTYPE) == VT_VOID && !param->next)
+                break;
+
+            if (!param_first)
+                buf_puts(w, ", ");
+            param_first = 0;
+
+            buf_puts(w, "{\"name\": \"");
+            if (param->v >= TOK_IDENT) {
+                const char *pname = get_tok_str(param->v & ~SYM_FIELD, NULL);
+                if (pname && pname[0] != '\0'
+                    && !(pname[0] == 'L' && pname[1] == '.')
+                    && strcmp(pname, "<no name>") != 0)
+                    buf_puts_json(w, pname);
+            }
+            buf_puts(w, "\", \"type\": \"");
+            json_write_type_string(w, s1, &param->type);
+            buf_puts(w, "\"}");
+
+            param = param->next;
+        }
+    }
+
+    buf_puts(w, "]}");
 }
 
 static void json_write_debug_calls(BufWriter *w, TCCState *s1)
