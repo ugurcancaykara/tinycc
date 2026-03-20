@@ -6567,7 +6567,7 @@ special_math_val:
                 r = tcc_state->reverse_funcargs;
                 for(;;) {
                     /* Save string literal before expr_eq() processes it */
-                    CString saved_tokc_str = {0, NULL, 0};
+                    CString saved_tokc_str = {0, 0, NULL};
                     int was_string_tok = (tok == TOK_STR);
                     if (was_string_tok && debug_handler) {
                         /* Make a copy of the string data from tokc */

@@ -240,6 +240,7 @@ static void tcc_concat_str(char **pp, const char *str, int sep)
 
 /* we'll need the actual versions for a minute */
 #undef free
+#undef malloc
 #undef realloc
 
 static struct {

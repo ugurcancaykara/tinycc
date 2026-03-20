@@ -1,8 +1,34 @@
-/* Minimal stubs for syntax-only mode */
+/* Minimal stubs for syntax-only mode (WASM build)
+ *
+ * Include tcc.h with ONE_SOURCE=0 so ST_FUNC/ST_DATA are extern,
+ * matching the stubs' non-static definitions.
+ *
+ * Newer TCC mob redefines section names and tcc_error as macros
+ * (TCC_STATE_VAR / TCC_SET_STATE). We #undef them after include
+ * so the stubs compile cleanly.
+ */
 
 #define ONE_SOURCE 0
 #include "tcc.h"
 #define ONE_SOURCE 1
+
+/* Section names are now macros: #define text_section TCC_STATE_VAR(text_section)
+ * Undef so we can use them as plain struct field names in tccelf_new. */
+#undef text_section
+#undef data_section
+#undef rodata_section
+#undef bss_section
+#undef common_section
+#undef cur_text_section
+#undef bounds_section
+#undef lbounds_section
+#undef symtab_section
+
+/* Error/warning macros now expand to (tcc_enter_state(s1), fn) which
+ * requires a local 's1'. Undef and avoid calling from stubs. */
+#undef tcc_error
+#undef tcc_error_noabort
+#undef tcc_warning
 
 /* Code generation stubs (never called when nocode_wanted is set) */
 void gen_opi(int op) {}
@@ -24,7 +50,7 @@ void gsym_addr(int t, int a) {}
 void load(int r, SValue *sv) {}
 void store(int r, SValue *v) {}
 void gfunc_call(int nb_args) {}
-void gfunc_prolog(CType *func_type) {}
+void gfunc_prolog(Sym *func_sym) {}
 void gfunc_epilog(void) {}
 int gfunc_sret(CType *vt, int variadic, CType *ret, int *align, int *regsize) { return 0; }
 void o(unsigned int c) {}
@@ -36,23 +62,33 @@ void g(int c) {}
 /* x86_64 specific stubs */
 int classify_x86_64_va_arg(CType *ty) { return 0; }
 
-/* Assembly stubs */
-void asm_instr(void) { tcc_error("inline assembly not supported in syntax-only mode"); }
-void asm_global_instr(void) { tcc_error("inline assembly not supported in syntax-only mode"); }
+/* Assembly stubs — silently ignored in syntax-only mode */
+void asm_instr(void) {}
+void asm_global_instr(void) {}
 int asm_parse_regvar(int t) { return -1; }
-int tcc_assemble(TCCState *s1, int do_preprocess) { tcc_error("assembly not supported"); return -1; }
+int tcc_assemble(TCCState *s1, int do_preprocess) { return -1; }
 
 /* ELF/section management stubs */
+static Section dummy_section = {0};
+
 void tccelf_begin_file(TCCState *s1) {}
 void tccelf_end_file(TCCState *s1) {}
-void tccelf_new(TCCState *s) {}
+void tccelf_new(TCCState *s) {
+    /* Provide dummy sections so syntax checker doesn't crash on NULL derefs */
+    s->text_section = &dummy_section;
+    s->data_section = &dummy_section;
+    s->bss_section = &dummy_section;
+    s->common_section = &dummy_section;
+    s->cur_text_section = &dummy_section;
+    s->symtab_section = &dummy_section;
+}
 void tccelf_delete(TCCState *s1) {}
 void tccelf_stab_new(TCCState *s) {}
 int tcc_object_type(int fd, ElfW(Ehdr) *h) { return 0; }
 int tcc_load_object_file(TCCState *s1, int fd, unsigned long file_offset) { return -1; }
-int tcc_load_archive(TCCState *s1, int fd) { return -1; }
+int tcc_load_archive(TCCState *s1, int fd, int alacarte) { return -1; }
 int tcc_load_dll(TCCState *s1, int fd, const char *filename, int level) { return -1; }
-int tcc_load_ldscript(TCCState *s1) { return -1; }
+int tcc_load_ldscript(TCCState *s1, int fd) { return -1; }
 int set_elf_sym(Section *s, addr_t value, unsigned long size, int info, int other, int shndx, const char *name) { return 0; }
 int put_elf_sym(Section *s, addr_t value, unsigned long size, int info, int other, int shndx, const char *name) { return 0; }
 void put_elf_reloca(Section *symtab, Section *s, unsigned long offset, int type, int symbol, addr_t addend) {}
@@ -69,19 +105,9 @@ void section_reserve(Section *sec, unsigned long size) {}
 void tcc_run_free(TCCState *s1) {}
 void tcc_set_num_callers(int n) {}
 
-/* Section variables (dummy sections for syntax checking) */
-static Section dummy_section = {0};
-Section *text_section = &dummy_section;
-Section *data_section = &dummy_section;
-Section *bss_section = &dummy_section;
-Section *common_section = &dummy_section;
-Section *cur_text_section = &dummy_section;
-Section *symtab_section = &dummy_section;
-
 /* Backend data */
 const int reg_classes[NB_REGS] = {0};
 
 /* Additional backend functions */
 Section *find_section(TCCState *s1, const char *name) { return &dummy_section; }
 void *section_ptr_add(Section *sec, addr_t size) { return NULL; }
-
