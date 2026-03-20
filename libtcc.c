@@ -2464,6 +2464,29 @@ static void buf_printf(BufWriter *w, const char *fmt, ...)
     }
 }
 
+/* Write a string with JSON escaping (backslash, quotes, control chars) */
+static void buf_puts_json(BufWriter *w, const char *s)
+{
+    if (!s) return;
+    while (*s) {
+        if (w->full) return;
+        switch (*s) {
+        case '"':  buf_puts(w, "\\\""); break;
+        case '\\': buf_puts(w, "\\\\"); break;
+        case '\n': buf_puts(w, "\\n"); break;
+        case '\r': buf_puts(w, "\\r"); break;
+        case '\t': buf_puts(w, "\\t"); break;
+        default:
+            if ((unsigned char)*s < 0x20) {
+                buf_printf(w, "\\u%04x", (unsigned char)*s);
+            } else {
+                buf_putc(w, *s);
+            }
+        }
+        s++;
+    }
+}
+
 static void json_write_base_type_name(BufWriter *w, TCCState *s1, CType *type, int omit_struct_union_keyword, int omit_unsigned)
 {
     int bt = type->t & VT_BTYPE;
@@ -2475,7 +2498,7 @@ static void json_write_base_type_name(BufWriter *w, TCCState *s1, CType *type, i
         const char *name = get_tok_str(type->ref->v, NULL);
         /* Only use it if it doesn't look like a generated label (starts with 'L.') */
         if (name && !(name[0] == 'L' && name[1] == '.')) {
-            buf_puts(w, name);
+            buf_puts_json(w, name);
             return;
         }
     }
@@ -2493,7 +2516,7 @@ static void json_write_base_type_name(BufWriter *w, TCCState *s1, CType *type, i
             if (name && name[0] == 'L' && name[1] == '.') {
                 buf_puts(w, "<anonymous>");
             } else {
-                buf_puts(w, name);
+                buf_puts_json(w, name);
             }
         } else {
             buf_puts(w, "<anonymous>");
@@ -2553,7 +2576,7 @@ static void json_write_struct_members(BufWriter *w, TCCState *s1, Sym *s, int in
         buf_puts(w, "\"name\": \"");
         if (m->v >= TOK_IDENT) {
             const char *name = get_tok_str(m->v & ~SYM_FIELD, NULL);
-            buf_puts(w, name);
+            buf_puts_json(w, name);
         } else {
             buf_puts(w, "<anonymous>");
         }
@@ -2700,7 +2723,7 @@ static void json_write_struct(BufWriter *w, TCCState *s1, Sym *s, const char *na
 
     buf_puts(w, "\"name\": \"");
     if (name) {
-        buf_puts(w, name);
+        buf_puts_json(w, name);
     } else {
         buf_puts(w, "<anonymous>");
     }
