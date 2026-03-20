@@ -975,6 +975,9 @@ struct TCCState {
     int nb_debug_calls;
     int debug_calls_capacity;
 
+    /* type info export writer (set during tcc_compile_string_ex) */
+    void *type_info_writer;
+
     /* ptr to next reloc entry reused */
     ElfW_Rel *qrel;
     #define qrel s1->qrel

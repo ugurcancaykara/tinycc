@@ -954,6 +954,34 @@ static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd, cons
             tccelf_end_file(s1);
         }
     }
+    /* Export type info before tccgen_finish clears sym_struct
+       and preprocess_end frees table_ident */
+    if (s1->type_info_writer) {
+        BufWriter *w = (BufWriter *)s1->type_info_writer;
+        if (w->buf && w->size > 0) {
+            buf_puts(w, "[\n");
+            {
+                int first = 1;
+                int i;
+                for (i = TOK_IDENT; i < tok_ident; i++) {
+                    TokenSym *ts = table_ident[i - TOK_IDENT];
+                    if (ts && ts->sym_struct) {
+                        json_write_struct(w, s1, ts->sym_struct, ts->str, &first);
+                    }
+                    if (w->full) break;
+                }
+            }
+            if (w->full) {
+                w->buf[0] = '\0';
+            } else {
+                buf_puts(w, "\n]\n");
+                if (w->pos < w->size) {
+                    w->buf[w->pos] = '\0';
+                }
+            }
+        }
+    }
+
     tccgen_finish(s1);
     preprocess_end(s1);
     s1->error_set_jmp_enabled = 0;
@@ -968,35 +996,10 @@ LIBTCCAPI int tcc_compile_string(TCCState *s, const char *str)
 
 LIBTCCAPI int tcc_compile_string_ex(TCCState *s, const char *str, BufWriter *w)
 {
-    int ret;
-
-    ret = tcc_compile(s, s->filetype, str, -1, NULL);
-
-    /* generate JSON export of type definitions if requested */
-    if (w && w->buf && w->size > 0) {
-        buf_puts(w, "[\n");
-        {
-            int first = 1;
-            int i;
-            for (i = TOK_IDENT; i < tok_ident; i++) {
-                TokenSym *ts = table_ident[i - TOK_IDENT];
-                if (ts && ts->sym_struct) {
-                    json_write_struct(w, s, ts->sym_struct, ts->str, &first);
-                }
-                if (w->full) break;
-            }
-        }
-        if (w->full) {
-            w->buf[0] = '\0';
-        } else {
-            buf_puts(w, "\n]\n");
-            /* Null-terminate the buffer */
-            if (w->pos < w->size) {
-                w->buf[w->pos] = '\0';
-            }
-        }
-    }
-
+    /* Set writer so tcc_compile exports type info before preprocess_end */
+    s->type_info_writer = w;
+    int ret = tcc_compile(s, s->filetype, str, -1, NULL);
+    s->type_info_writer = NULL;
     return ret;
 }
 
