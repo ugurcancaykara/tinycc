@@ -298,7 +298,7 @@ int main(int argc, char **argv)
 
 redo:
     argc = argc0, argv = argv0;
-    s = s1 = tcc_new();
+    s = s1 = tcc_new(0);
     opt = tcc_parse_args(s, &argc, &argv);
 
     if (n == 0) {
@@ -395,6 +395,8 @@ redo:
     if (s->run_test) {
         t = 0;
     } else if (s->output_type == TCC_OUTPUT_PREPROCESS) {
+        ;
+    } else if (s->syntax_only) {
         ;
     } else if (0 == ret) {
         if (s->output_type == TCC_OUTPUT_MEMORY) {
